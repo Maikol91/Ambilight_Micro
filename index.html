@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQTT 3-Zone Tracker - Pures Colors</title>
+    <!-- Librería MQTT para Navegador -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            background: #111; 
+            color: #fff; 
+            font-family: system-ui, -apple-system, sans-serif; 
+            text-align: center; 
+            overflow: hidden;
+        }
+        .container { 
+            position: relative; 
+            width: 100vw; 
+            max-width: 500px; 
+            margin: 0 auto; 
+        }
+        video, canvas { 
+            width: 100%; 
+            height: auto; 
+            display: block; 
+        }
+        canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+        }
+        #status { 
+            padding: 8px; 
+            font-weight: bold; 
+            background: #222; 
+            font-size: 13px; 
+            border-bottom: 1px solid #333;
+        }
+        #preview-bar { 
+            width: 100%; 
+            height: 40px; 
+            display: flex;
+            border-bottom: 1px solid #444; 
+        }
+        .sec-preview {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            text-shadow: 0px 0px 4px #000, 0px 0px 4px #000;
+            border-right: 1px solid rgba(255,255,255,0.2);
+        }
+        .sec-preview:last-child {
+            border-right: none;
+        }
+        #brightness-container {
+            background: #1a1a1a;
+            padding: 8px 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #333;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        #brightness-slider {
+            width: 60%;
+            accent-color: #00FFCC;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Conectando a Broker MQTT...</div>
+    
+    <!-- BARRA PREVISUALIZADORA DE LAS 3 SECCIONES -->
+    <div id="preview-bar">
+        <div id="sec1-prev" class="sec-preview">Sec 1 (Izq)</div>
+        <div id="sec2-prev" class="sec-preview">Sec 2 (Cen)</div>
+        <div id="sec3-prev" class="sec-preview">Sec 3 (Der)</div>
+    </div>
+    
+    <!-- CONTROL DE BRILLO GENERAL -->
+    <div id="brightness-container">
+        <label for="brightness-slider">Brillo: <span id="brightness-val">100</span>%</label>
+        <input type="range" id="brightness-slider" min="0" max="100" value="100">
+    </div>
+
+    <div class="container">
+        <video id="webcam" autoplay playsinline muted></video>
+        <canvas id="output"></canvas>
+    </div>
+
+    <script>
+        const TOPIC = "sds/dato1";
+        const client = mqtt.connect('wss://test.mosquitto.org:8081');
+
+        const statusText = document.getElementById('status');
+        const sec1Prev = document.getElementById('sec1-prev');
+        const sec2Prev = document.getElementById('sec2-prev');
+        const sec3Prev = document.getElementById('sec3-prev');
+        const slider = document.getElementById('brightness-slider');
+        const brightnessVal = document.getElementById('brightness-val');
+        
+        let mqttConectado = false;
+        let factorBrillo = 1.0;
+
+        slider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            brightnessVal.innerText = val;
+            factorBrillo = val / 100;
+        });
+
+        client.on('connect', () => {
+            mqttConectado = true;
+            statusText.innerText = "MQTT Conectado. Esperando cámara...";
+        });
+
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+
+        let ultimoPayload = "";
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+            .then(stream => {
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    statusText.innerText = "Saturación Pura de 3 Zonas Activa";
+                    requestAnimationFrame(procesarFrame);
+                };
+            })
+            .catch(err => statusText.innerText = "Error accediendo a la cámara: " + err);
+
+        // FUNCIÓN DE SATURACIÓN EXTREMA / CLASIFICACIÓN DE COLOR PURO
+        function saturarColorPuro(r, g, b) {
+            const umbralMinimo = 25; // Si está muy oscuro, se apaga
+            if (r < umbralMinimo && g < umbralMinimo && b < umbralMinimo) {
+                return [0, 0, 0];
+            }
+
+            const maxVal = Math.max(r, g, b);
+
+            // Si un canal destaca fuertemente, forzamos ese color primario al 100%
+            let rPuro = 0, gPuro = 0, bPuro = 0;
+
+            if (r === maxVal && r > g * 1.15 && r > b * 1.15) {
+                rPuro = 255; // Rojo Puro
+            } else if (g === maxVal && g > r * 1.15 && g > b * 1.15) {
+                gPuro = 255; // Verde Puro
+            } else if (b === maxVal && b > r * 1.15 && b > g * 1.15) {
+                bPuro = 255; // Azul Puro
+            } else if (r > b * 1.4 && g > b * 1.4) {
+                rPuro = 255; gPuro = 255; // Amarillo Puro
+            } else if (r > g * 1.4 && b > g * 1.4) {
+                rPuro = 255; bPuro = 255; // Magenta / Violeta
+            } else if (g > r * 1.4 && b > r * 1.4) {
+                gPuro = 255; bPuro = 255; // Cyan / Celeste
+            } else {
+                // Si realmente no domina ningún canal, mantenemos el color con máximo contraste
+                const factor = 255 / maxVal;
+                rPuro = Math.round(r * factor);
+                gPuro = Math.round(g * factor);
+                bPuro = Math.round(b * factor);
+            }
+
+            // Aplicar el slider de brillo al resultado final
+            return [
+                Math.round(rPuro * factorBrillo),
+                Math.round(gPuro * factorBrillo),
+                Math.round(bPuro * factorBrillo)
+            ];
+        }
+
+        function procesarFrame() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                const w = canvas.width;
+                const h = canvas.height;
+                const secW = w / 3;
+                const centerY = Math.floor(h / 2);
+
+                const puntosX = [
+                    Math.floor(secW * 0.5), // Zona 1 (Izquierda)
+                    Math.floor(secW * 1.5), // Zona 2 (Centro)
+                    Math.floor(secW * 2.5)  // Zona 3 (Derecha)
+                ];
+
+                let colores3Sec = [];
+
+                puntosX.forEach(px => {
+                    const sampleRadius = 3;
+                    const imgData = ctx.getImageData(px - sampleRadius, centerY - sampleRadius, 7, 7);
+                    const data = imgData.data;
+
+                    let sumR = 0, sumG = 0, sumB = 0;
+                    for (let i = 0; i < data.length; i += 4) {
+                        sumR += data[i];
+                        sumG += data[i + 1];
+                        sumB += data[i + 2];
+                    }
+
+                    const rawR = sumR / (data.length / 4);
+                    const rawG = sumG / (data.length / 4);
+                    const rawB = sumB / (data.length / 4);
+
+                    // Forzar el color saturado/puro
+                    const colorSaturado = saturarColorPuro(rawR, rawG, rawB);
+                    colores3Sec.push(colorSaturado);
+                });
+
+                // DIBUJAR GUÍAS DE ZONAS
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(secW, 0); ctx.lineTo(secW, h);
+                ctx.moveTo(secW * 2, 0); ctx.lineTo(secW * 2, h);
+                ctx.stroke();
+
+                puntosX.forEach((px, idx) => {
+                    ctx.save();
+                    ctx.shadowColor = "black";
+                    ctx.shadowBlur = 4;
+                    ctx.strokeStyle = "#00FFCC";
+                    ctx.fillStyle = "#00FFCC";
+                    ctx.lineWidth = 2;
+
+                    ctx.beginPath();
+                    ctx.arc(px, centerY, 8, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    ctx.beginPath();
+                    ctx.arc(px, centerY, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = "#FFFFFF";
+                    ctx.fill();
+
+                    ctx.font = "bold 12px sans-serif";
+                    ctx.fillText(`Zona ${idx + 1}`, px - 20, centerY - 15);
+                    ctx.restore();
+                });
+
+                // PREVISUALIZACIÓN Y TRANSMISIÓN MQTT
+                const [c1, c2, c3] = colores3Sec;
+
+                sec1Prev.style.backgroundColor = `rgb(${c1[0]}, ${c1[1]}, ${c1[2]})`;
+                sec1Prev.innerText = `S1 (Izq)`;
+
+                sec2Prev.style.backgroundColor = `rgb(${c2[0]}, ${c2[1]}, ${c2[2]})`;
+                sec2Prev.innerText = `S2 (Cen)`;
+
+                sec3Prev.style.backgroundColor = `rgb(${c3[0]}, ${c3[1]}, ${c3[2]})`;
+                sec3Prev.innerText = `S3 (Der)`;
+
+                const payloadObj = { 
+                    "Sec1": c1, 
+                    "Sec2": c2, 
+                    "Sec3": c3 
+                };
+
+                const payloadStr = JSON.stringify(payloadObj);
+
+                if (payloadStr !== ultimoPayload && mqttConectado) {
+                    client.publish(TOPIC, payloadStr);
+                    ultimoPayload = payloadStr;
+                    statusText.innerText = "Transmitiendo Colores Puros Saturados OK";
+                }
+            }
+            requestAnimationFrame(procesarFrame);
+        }
+    </script>
+</body>
+</html>
