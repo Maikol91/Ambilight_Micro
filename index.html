@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MQTT 3-Zone Tracker - Pures Colors</title>
+    <title>MQTT 3-Zone Tracker - Colores Puros</title>
     <!-- Librería MQTT para Navegador -->
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <style>
@@ -72,10 +72,36 @@
             accent-color: #00FFCC;
             cursor: pointer;
         }
+        /* BOTÓN DE NAVEGACIÓN ENTRE VERSIONES */
+        #nav-link-container {
+            background: #1a1a1a;
+            padding: 8px 15px;
+            border-bottom: 1px solid #333;
+        }
+        #nav-link {
+            display: inline-block;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 8px 12px;
+            background: #00FFCC;
+            color: #111;
+            font-weight: bold;
+            font-size: 13px;
+            text-decoration: none;
+            border-radius: 6px;
+        }
+        #nav-link:active {
+            background: #00cca3;
+        }
     </style>
 </head>
 <body>
     <div id="status">Conectando a Broker MQTT...</div>
+
+    <!-- BOTÓN PARA IR A LA VERSIÓN SATURADA -->
+    <div id="nav-link-container">
+        <a id="nav-link" href="index1.html">➡ Ir a versión Saturada</a>
+    </div>
     
     <!-- BARRA PREVISUALIZADORA DE LAS 3 SECCIONES -->
     <div id="preview-bar">
