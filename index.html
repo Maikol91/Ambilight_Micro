@@ -164,39 +164,75 @@
             })
             .catch(err => statusText.innerText = "Error accediendo a la cámara: " + err);
 
-        // FUNCIÓN DE SATURACIÓN EXTREMA / CLASIFICACIÓN DE COLOR PURO
-        function saturarColorPuro(r, g, b) {
-            const umbralMinimo = 25; // Si está muy oscuro, se apaga
-            if (r < umbralMinimo && g < umbralMinimo && b < umbralMinimo) {
+        // =====================================================
+        // CONVERSIÓN RGB -> HSV -> RGB
+        // Permite forzar la SATURACIÓN sin perder el matiz (H) real,
+        // así un color pastel o cálido tenue se vuelve vívido sin
+        // "saltar" a otro color como pasaba con los umbrales fijos.
+        // =====================================================
+        function rgbToHsv(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const d = max - min;
+            let h = 0;
+
+            if (d !== 0) {
+                if (max === r) {
+                    h = ((g - b) / d) % 6;
+                } else if (max === g) {
+                    h = (b - r) / d + 2;
+                } else {
+                    h = (r - g) / d + 4;
+                }
+                h *= 60;
+                if (h < 0) h += 360;
+            }
+
+            const s = max === 0 ? 0 : d / max;
+            const v = max;
+            return [h, s, v];
+        }
+
+        function hsvToRgb(h, s, v) {
+            const c = v * s;
+            const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+            const m = v - c;
+            let r1 = 0, g1 = 0, b1 = 0;
+
+            if (h < 60)       { r1 = c; g1 = x; b1 = 0; }
+            else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+            else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+            else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+            else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+            else              { r1 = c; g1 = 0; b1 = x; }
+
+            return [
+                Math.round((r1 + m) * 255),
+                Math.round((g1 + m) * 255),
+                Math.round((b1 + m) * 255)
+            ];
+        }
+
+        // UMBRAL DE OSCURIDAD: si el brillo (V) es muy bajo, se considera "apagado" (negro)
+        const V_MINIMO = 0.12;      // ~30/255. Ajusta si detecta negro donde no debería (o viceversa)
+        const SATURACION_MINIMA = 0.85; // 0 a 1. Entre más alto, más "vívido" se ve un color pastel
+
+        function saturarColorHSV(r, g, b) {
+            const [h, s, v] = rgbToHsv(r, g, b);
+
+            if (v < V_MINIMO) {
                 return [0, 0, 0];
             }
 
-            const maxVal = Math.max(r, g, b);
+            // Se conserva el matiz (H) tal cual se detectó -> el color no cambia de identidad
+            // Se fuerza la saturación a un mínimo alto -> pasteles/cálidos tenues se vuelven vívidos
+            // (si el color ya venía más saturado que el mínimo, se respeta su saturación real)
+            const sFinal = Math.max(s, SATURACION_MINIMA);
+            const vFinal = 1.0; // brillo máximo del color puro; el brillo real se aplica después con el slider
 
-            // Si un canal destaca fuertemente, forzamos ese color primario al 100%
-            let rPuro = 0, gPuro = 0, bPuro = 0;
+            const [rPuro, gPuro, bPuro] = hsvToRgb(h, sFinal, vFinal);
 
-            if (r === maxVal && r > g * 1.15 && r > b * 1.15) {
-                rPuro = 255; // Rojo Puro
-            } else if (g === maxVal && g > r * 1.15 && g > b * 1.15) {
-                gPuro = 255; // Verde Puro
-            } else if (b === maxVal && b > r * 1.15 && b > g * 1.15) {
-                bPuro = 255; // Azul Puro
-            } else if (r > b * 1.4 && g > b * 1.4) {
-                rPuro = 255; gPuro = 255; // Amarillo Puro
-            } else if (r > g * 1.4 && b > g * 1.4) {
-                rPuro = 255; bPuro = 255; // Magenta / Violeta
-            } else if (g > r * 1.4 && b > r * 1.4) {
-                gPuro = 255; bPuro = 255; // Cyan / Celeste
-            } else {
-                // Si realmente no domina ningún canal, mantenemos el color con máximo contraste
-                const factor = 255 / maxVal;
-                rPuro = Math.round(r * factor);
-                gPuro = Math.round(g * factor);
-                bPuro = Math.round(b * factor);
-            }
-
-            // Aplicar el slider de brillo al resultado final
+            // Aplicar el slider de brillo general al resultado final
             return [
                 Math.round(rPuro * factorBrillo),
                 Math.round(gPuro * factorBrillo),
@@ -237,8 +273,8 @@
                     const rawG = sumG / (data.length / 4);
                     const rawB = sumB / (data.length / 4);
 
-                    // Forzar el color saturado/puro
-                    const colorSaturado = saturarColorPuro(rawR, rawG, rawB);
+                    // Forzar el color a su versión vívida usando HSV
+                    const colorSaturado = saturarColorHSV(rawR, rawG, rawB);
                     colores3Sec.push(colorSaturado);
                 });
 
